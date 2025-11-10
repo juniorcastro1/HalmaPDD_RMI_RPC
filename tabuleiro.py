@@ -1,6 +1,4 @@
 # tabuleiro.py
-# (Este arquivo é o mesmo que já tínhamos,
-# apenas garantindo que a função get_board() esteja presente)
 
 class HalmaGame:
     def __init__(self, board_size=10):

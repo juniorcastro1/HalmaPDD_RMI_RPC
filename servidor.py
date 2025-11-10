@@ -1,4 +1,5 @@
 # servidor.py
+
 import socket
 import threading
 from tabuleiro import HalmaGame
@@ -12,7 +13,6 @@ player_map = {}
 jogo = HalmaGame()
 game_lock = threading.Lock()
 
-# --- NOVA FUNÇÃO DE RESET (como discutimos) ---
 def reset_game():
     global jogo, jogadores, player_map
     print("\n[INFO] Fim de jogo. Reiniciando o servidor...")
@@ -93,7 +93,7 @@ def broadcast(message, sender_conn=None):
             except Exception as e:
                 print(f"Erro ao transmitir: {e}")
 
-# --- FUNÇÃO MODIFICADA PARA RECEBER HOST E PORTA ---
+# Função para receber Host e Porta
 def start_server(host, port):
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
@@ -127,12 +127,10 @@ def start_server(host, port):
         else:
             time.sleep(1)
 
-# --- BLOCO PRINCIPAL MODIFICADO ---
-if __name__ == "__main__":
-    # 1. Cria o parser de argumentos
-    parser = argparse.ArgumentParser(description="Inicia o servidor do jogo Halma.")
+if __name__ == "__main__": #cria argumentos para poder alterar o host e porta
+    parser = argparse.ArgumentParser(description="Inicia o servidor do jogo.")
     
-    # 2. Define os argumentos que o script pode aceitar
+    # Define os argumentos que o script pode aceitar
     parser.add_argument('--host', 
                         default='0.0.0.0', 
                         help='Endereço de HOST para o servidor escutar (padrão: 0.0.0.0, aceita todas as conexões).')
@@ -142,8 +140,8 @@ if __name__ == "__main__":
                         default=65432, 
                         help='Número da PORTA para o servidor escutar (padrão: 65432).')
     
-    # 3. Analisa os argumentos passados pelo usuário
+    # Analisa os argumentos passados pelo usuário
     args = parser.parse_args()
     
-    # 4. Inicia o servidor com os argumentos fornecidos
+    # Inicia o servidor com os argumentos fornecidos
     start_server(args.host, args.port)

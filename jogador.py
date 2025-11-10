@@ -1,4 +1,5 @@
 # jogador.py
+
 import socket
 from PIL import Image, ImageTk
 import threading
@@ -80,12 +81,6 @@ class HalmaClient:
         except ConnectionRefusedError:
             messagebox.showerror("ERRO", f"Não foi possível conectar ao servidor em {self.host}:{self.port}")
             self.master.destroy()
-    
-    # ... (o resto das funções: set_status, show_notification, forfeit_game, reset_forfeit_button, 
-    # receive_messages, _setup_pieces, draw_board, on_canvas_click, 
-    # calculate_possible_moves, _find_jumps_recursive, update_board, send_message, 
-    # handle_server_disconnect, send_chat_message, display_message, on_closing
-    # são exatamente as mesmas que você tem) ...
 
     def set_status(self, message, color="black", permanent=False):
         self.status_label.config(text=message, fg=color)
