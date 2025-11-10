@@ -5,8 +5,6 @@ import argparse
 import time
 import threading
 
-# Esta classe é a "Interface de Operações"
-# Todos os métodos aqui podem ser chamados remotamente pelo cliente.
 class HalmaServerLogic:
     def __init__(self):
         self.jogo = HalmaGame()

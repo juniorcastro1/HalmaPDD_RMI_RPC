@@ -206,9 +206,17 @@ class HalmaClient:
         message = self.chat_input.get()
         if message:
             try:
-                self.servidor.enviar_chat(self.player_id, message)
+                # --- CORREÇÃO AQUI ---
+                # 1. Chame o servidor E guarde o ID da nova mensagem
+                novo_id = self.servidor.enviar_chat(self.player_id, message)
+                
+                # 2. Atualize o seu "último ID" localmente
+                self.ultimo_chat_id = novo_id 
+                
+                # 3. Exiba a sua mensagem local
                 self.display_message(f"Eu: {message}")
                 self.chat_input.delete(0, tk.END)
+                
             except Exception as e:
                 messagebox.showerror("Erro de Chat", f"Não foi possível enviar a mensagem: {e}")
 
