@@ -122,17 +122,15 @@ class HalmaClient:
 
     def set_status(self, message, color="black"):
         self.status_label.config(text=message, fg=color)
-        
-    # --- LÓGICA DE ATUALIZAÇÃO E RPC (O CORAÇÃO DA MUDANÇA) ---
     
     def loop_de_atualizacao(self):
         """Thread que pergunta ao servidor por atualizações (Polling)."""
         while self.jogo_ativo:
             try:
-                # 1. Pede o estado do jogo
+                # Pede o estado do jogo
                 estado = self.servidor.get_estado_do_jogo()
                 
-                # 2. Verifica se algo mudou (tabuleiro, turno ou vencedor)
+                # Verifica se algo mudou 
                 if estado["estado_id"] != self.ultimo_estado_id:
                     self.ultimo_estado_id = estado["estado_id"]
                     
@@ -153,7 +151,6 @@ class HalmaClient:
                     else:
                         self.set_status("Vez do oponente.", "darkred")
 
-                # 3. Pede novas mensagens do chat
                 novas_mensagens = self.servidor.get_novas_mensagens_chat(self.ultimo_chat_id)
                 if novas_mensagens:
                     for msg in novas_mensagens:
@@ -166,7 +163,7 @@ class HalmaClient:
                     self.set_status("Erro de conexão com o servidor...", "red")
                 break
             
-            time.sleep(1) # Pergunta por atualizações a cada 1 segundo
+            time.sleep(1) # atualiza a cada um segundo
 
     def on_canvas_click(self, event):
         """Chamado quando o jogador clica no tabuleiro."""
@@ -206,14 +203,13 @@ class HalmaClient:
         message = self.chat_input.get()
         if message:
             try:
-                # --- CORREÇÃO AQUI ---
-                # 1. Chame o servidor E guarde o ID da nova mensagem
+                # Chame o servidor E guarde o ID da nova mensagem
                 novo_id = self.servidor.enviar_chat(self.player_id, message)
                 
-                # 2. Atualize o seu "último ID" localmente
+                # Atualize o seu "último ID" localmente
                 self.ultimo_chat_id = novo_id 
                 
-                # 3. Exiba a sua mensagem local
+                # Exiba a sua mensagem local
                 self.display_message(f"Eu: {message}")
                 self.chat_input.delete(0, tk.END)
                 
@@ -239,7 +235,6 @@ class HalmaClient:
         self.chat_display.config(state='disabled')
         self.chat_display.yview(tk.END)
         
-    # (Funções calculate_possible_moves e _find_jumps_recursive são idênticas)
     def calculate_possible_moves(self, r, c):
         moves = set()
         for dr in [-1, 0, 1]:
@@ -267,7 +262,6 @@ class HalmaClient:
                         new_path.add((dest_r, dest_c))
                         self._find_jumps_recursive((dest_r, dest_c), all_moves, new_path)
 
-# --- BLOCO PRINCIPAL MODIFICADO (com argparse) ---
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Inicia o cliente RMI/RPC do jogo Halma.")
     
