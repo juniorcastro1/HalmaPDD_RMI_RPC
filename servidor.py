@@ -3,6 +3,7 @@ from xmlrpc.server import SimpleXMLRPCServer
 from tabuleiro import HalmaGame # Usa o mesmo tabuleiro.py
 import argparse
 import time
+import threading
 
 # Esta classe é a "Interface de Operações"
 # Todos os métodos aqui podem ser chamados remotamente pelo cliente.
