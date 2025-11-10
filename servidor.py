@@ -1,147 +1,125 @@
-# servidor.py
-
-import socket
-import threading
-from tabuleiro import HalmaGame
-import argparse  # <-- NOVO IMPORT
+# servidor_rpc.py
+from xmlrpc.server import SimpleXMLRPCServer
+from tabuleiro import HalmaGame # Usa o mesmo tabuleiro.py
+import argparse
 import time
 
-# HOST e PORT foram removidos daqui
+# Esta classe é a "Interface de Operações"
+# Todos os métodos aqui podem ser chamados remotamente pelo cliente.
+class HalmaServerLogic:
+    def __init__(self):
+        self.jogo = HalmaGame()
+        self.jogadores = []
+        self.chat_messages = []
+        # Contador de estado para o cliente saber se algo mudou
+        self.estado_id = 0
+        print("[INFO] Instância do jogo e lógica do servidor iniciadas.")
 
-jogadores = []
-player_map = {}
-jogo = HalmaGame()
-game_lock = threading.Lock()
-
-def reset_game():
-    global jogo, jogadores, player_map
-    print("\n[INFO] Fim de jogo. Reiniciando o servidor...")
-    time.sleep(5)
-    for conn in jogadores:
-        conn.close()
-    jogadores.clear()
-    player_map.clear()
-    jogo = HalmaGame()
-    print("[INFO] Servidor pronto para aceitar novas conexões.\n")
-
-def handle_jogador(conn, player_id):
-    global jogo
-    print(f"[JOGADOR {player_id}] Conectado de {conn.getpeername()}")
-
-    while True:
-        try:
-            data = conn.recv(1024).decode('utf-8')
-            if not data:
-                break
-
-            print(f"[JOGADOR {player_id}] Mensagem: {data}")
-            parts = data.split(':')
-            command = parts[0]
-
-            with game_lock:
-                if jogo.winner:
-                    continue
-
-                if command == "MOVE":
-                    if jogo.current_turn != player_id:
-                        conn.send("ERRO: Calma lá, ainda não é o seu turno!.".encode('utf-8'))
-                        continue
-                    
-                    from_pos = tuple(map(int, parts[1].split(',')))
-                    to_pos = tuple(map(int, parts[2].split(',')))
-                    
-                    if jogo.is_valid_move(player_id, from_pos, to_pos, []):
-                        jogo.move_piece(player_id, from_pos, to_pos)
-                        broadcast(f"UPDATE:{from_pos[0]},{from_pos[1]}:{to_pos[0]},{to_pos[1]}")
-                        
-                        if jogo.winner:
-                            broadcast(f"VENCEDOR:{jogo.winner}")
-                            reset_game()
-                        else:
-                             jogadores[jogo.current_turn-1].send(f"SEU_TURNO".encode('utf-8'))
-                    else:
-                        conn.send("ERRO:Movimento inválido.".encode('utf-8'))
-                
-                elif command == "CHAT":
-                    message = parts[1]
-                    broadcast(f"CHAT:{player_id}:{message}", sender_conn=conn)
-                
-                elif command == "DESISTENCIA":
-                    winner = 3 - player_id
-                    jogo.winner = winner
-                    broadcast(f"VENCEDOR:{winner}:DESISTENCIA")
-                    reset_game()
-
-        except (ConnectionResetError, IndexError):
-            break
-
-    print(f"[JOGADOR {player_id}] Desconectado.")
-    if not jogo.winner and len(jogadores) == 2:
-        jogadores.remove(conn)
-        winner = 3 - player_id
-        jogo.winner = winner
-        broadcast(f"VENCEDOR:{winner}:DESISTENCIA")
-        reset_game()
-    elif conn in jogadores:
-        jogadores.remove(conn)
-
-def broadcast(message, sender_conn=None):
-    for client_conn in jogadores:
-        if client_conn != sender_conn:
-            try:
-                client_conn.send(message.encode('utf-8'))
-            except Exception as e:
-                print(f"Erro ao transmitir: {e}")
-
-# Função para receber Host e Porta
-def start_server(host, port):
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        server_socket.bind((host, port))
-    except OSError as e:
-        print(f"Erro ao iniciar servidor: {e}. A porta {port} já pode estar em uso.")
-        return
+    def registrar_jogador(self):
+        """Chamado por um cliente para entrar no jogo."""
+        if len(self.jogadores) >= 2:
+            return 0  # Retorna 0 como ID de erro (sala cheia)
         
-    server_socket.listen(2)
-    print(f"[ESCUTANDO] Servidor em {host}:{port}")
+        player_id = len(self.jogadores) + 1
+        self.jogadores.append(player_id)
+        print(f"[INFO] Jogador {player_id} registrado.")
+        
+        if len(self.jogadores) == 2:
+            print("[INFO] Ambos os jogadores conectados. O jogo vai começar.")
+            self.estado_id += 1 # Informa que o jogo começou
+            
+        return player_id
 
-    player_id_counter = 1
-    while True:
-        if len(jogadores) < 2:
-            conn, addr = server_socket.accept()
-            jogadores.append(conn)
-            player_map[conn] = player_id_counter
-            
-            thread = threading.Thread(target=handle_jogador, args=(conn, player_id_counter))
-            thread.start()
-            
-            conn.send(f"BEMVINDO:{player_id_counter}".encode('utf-8'))
-            
-            if len(jogadores) == 2:
-                print("Ambos os jogadores conectados. Iniciando o jogo.")
-                broadcast("INICIAR_JOGO")
-                jogadores[0].send("SEU_TURNO".encode('utf-8'))
-                player_id_counter = 1
-            else:
-                player_id_counter += 1
-        else:
-            time.sleep(1)
+    def fazer_jogada(self, player_id, from_pos, to_pos):
+        """Cliente chama esta função para tentar mover uma peça."""
+        print(f"[JOGADA] Jogador {player_id} tentando mover de {from_pos} para {to_pos}")
+        sucesso, mensagem = self.jogo.move_piece(player_id, from_pos, to_pos)
+        if sucesso:
+            self.estado_id += 1 # Atualiza o estado se a jogada foi válida
+        return sucesso, mensagem
 
-if __name__ == "__main__": #cria argumentos para poder alterar o host e porta
-    parser = argparse.ArgumentParser(description="Inicia o servidor do jogo.")
+    def get_estado_do_jogo(self):
+        """
+        Cliente chama esta função (em loop) para pegar o estado completo do jogo.
+        Isso é o coração da arquitetura de polling (sondagem).
+        """
+        return {
+            "board": self.jogo.get_board(),
+            "turn": self.jogo.current_turn,
+            "winner": self.jogo.winner,
+            "estado_id": self.estado_id,
+            "jogadores_conectados": len(self.jogadores)
+        }
+        
+    def enviar_chat(self, player_id, mensagem):
+        """Cliente chama para enviar uma mensagem de chat."""
+        print(f"[CHAT] Jogador {player_id}: {mensagem}")
+        self.chat_messages.append(f"Jogador {player_id}: {mensagem}")
+        # Retorna o ID da última mensagem (o índice dela)
+        return len(self.chat_messages) - 1
+        
+    def get_novas_mensagens_chat(self, ultimo_id_conhecido):
+        """Cliente chama para pegar apenas as mensagens que ele ainda não viu."""
+        if ultimo_id_conhecido < len(self.chat_messages) - 1:
+            return self.chat_messages[ultimo_id_conhecido + 1:]
+        return []
+
+    def desistir(self, player_id):
+        """Cliente chama para desistir."""
+        if self.jogo.winner: # Se o jogo já acabou, não faz nada
+            return True
+
+        print(f"[INFO] Jogador {player_id} desistiu.")
+        self.jogo.forfeit(player_id)
+        self.estado_id += 1
+        return True
     
-    # Define os argumentos que o script pode aceitar
+    def reset_game_se_necessario(self):
+        """Verifica se o jogo acabou e, se sim, reinicia."""
+        if self.jogo.winner and len(self.jogadores) > 0:
+            print("\n[INFO] Fim de jogo detectado. Reiniciando o servidor em 5 segundos...")
+            time.sleep(5)
+            self.jogo = HalmaGame()
+            self.jogadores = []
+            self.chat_messages = []
+            self.estado_id = 0
+            print("[INFO] Servidor pronto para aceitar novas conexões.\n")
+        return True
+
+
+# --- BLOCO PRINCIPAL MODIFICADO (com argparse) ---
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Inicia o servidor RMI/RPC do jogo Halma.")
+    
     parser.add_argument('--host', 
                         default='0.0.0.0', 
-                        help='Endereço de HOST para o servidor escutar (padrão: 0.0.0.0, aceita todas as conexões).')
+                        help='Endereço de HOST para o servidor escutar (padrão: 0.0.0.0).')
     
     parser.add_argument('--port', 
                         type=int, 
-                        default=65432, 
-                        help='Número da PORTA para o servidor escutar (padrão: 65432).')
+                        default=8000,  # Porta padrão para RPC
+                        help='Número da PORTA para o servidor escutar (padrão: 8000).')
     
-    # Analisa os argumentos passados pelo usuário
     args = parser.parse_args()
-    
-    # Inicia o servidor com os argumentos fornecidos
-    start_server(args.host, args.port)
+
+    # Configuração e inicialização do servidor RPC
+    try:
+        with SimpleXMLRPCServer((args.host, args.port), allow_none=True) as server:
+            server.register_instance(HalmaServerLogic())
+            print(f"[ESCUTANDO] Servidor RMI/RPC pronto em {args.host}:{args.port}...")
+            
+            # Uma thread simples para verificar se o jogo acabou e reiniciar
+            def game_reset_loop():
+                while True:
+                    server.instance.reset_game_se_necessario()
+                    time.sleep(1)
+            
+            reset_thread = threading.Thread(target=game_reset_loop, daemon=True)
+            reset_thread.start()
+
+            server.serve_forever()
+            
+    except OSError as e:
+        print(f"Erro ao iniciar servidor: {e}. A porta {args.port} já pode estar em uso.")
+    except KeyboardInterrupt:
+        print("\n[INFO] Servidor encerrado.")

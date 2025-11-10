@@ -1,12 +1,13 @@
-# jogador.py
-
-import socket
-from PIL import Image, ImageTk
+# jogador_rpc.py
+import xmlrpc.client
 import threading
+import time
 import tkinter as tk
 from tkinter import simpledialog, scrolledtext, messagebox
-import argparse 
+from PIL import Image, ImageTk
+import argparse # <-- Importa argparse
 
+# Constantes do tabuleiro (mesmas de antes)
 BOARD_SIZE = 10
 CELL_SIZE = 40
 P1_INITIAL_POSITIONS = [
@@ -25,34 +26,51 @@ class HalmaClient:
         self.is_my_turn = False
         self.selected_piece = None
         self.possible_moves = []
-        
-        # Salva o host e a porta
-        self.host = host
-        self.port = port
+        self.jogo_ativo = True
+
+        # Variáveis para sincronização de estado
+        self.ultimo_estado_id = -1
+        self.ultimo_chat_id = -1
 
         self.carrega_imagens()
-
-        self.forfeit_pending = False
-        self.last_status_message = ""
-        self.scheduled_job = None
-
         self._setup_ui()
-        self._connect_to_server()
-        self._setup_pieces()
+        
+        # Conecta-se ao servidor RPC
+        try:
+            self.servidor = xmlrpc.client.ServerProxy(f"http://{host}:{port}", allow_none=True)
+            self.player_id = self.servidor.registrar_jogador()
+            if self.player_id == 0:
+                messagebox.showerror("Erro", "Sala cheia. Não foi possível conectar.")
+                self.master.destroy()
+                return
+            self.master.title(f"Halma RPC - Jogador {self.player_id}")
+            self.set_status("Aguardando oponente...")
+        except Exception as e:
+            messagebox.showerror("Erro de Conexão", f"Não foi possível conectar ao servidor em {host}:{port}\n{e}")
+            self.master.destroy()
+            return
+            
+        self.dispor_pecas()
+        
+        # Inicia o loop que verifica por atualizações do servidor
+        self.update_thread = threading.Thread(target=self.loop_de_atualizacao, daemon=True)
+        self.update_thread.start()
 
+    # --- Funções de UI (carrega_imagens, _setup_ui, dispor_pecas, draw_board, set_status) ---
+    # (Elas são idênticas ao código que você já tem, exceto por `dispor_pecas` renomeado)
+    
     def carrega_imagens(self):
         """Carrega as imagens das peças"""
         try:
+            # Corrigido para .png com base nos seus arquivos mais recentes
             planeta1 = Image.open("assets/planeta1.png").resize((32,32), Image.LANCZOS)
             planeta2 = Image.open("assets/planeta2.png").resize((32,32), Image.LANCZOS)
-
             self.planeta1_peca = ImageTk.PhotoImage(planeta1)
             self.planeta2_peca = ImageTk.PhotoImage(planeta2)
         except FileNotFoundError:
             messagebox.showerror("Erro de Imagem", "Poxa, aparentemente os arquivos de imagens não foram encontrados na pasta 'assets'!")
             self.master.destroy()
 
-    # ... (o resto das funções: _setup_ui, set_status, forfeit_game, etc. não mudam) ...
     def _setup_ui(self):
         self.status_label = tk.Label(self.master, text="Conectando...", font=("Arial", 12))
         self.status_label.pack(pady=5)
@@ -71,86 +89,7 @@ class HalmaClient:
         self.forfeit_button = tk.Button(self.master, text="Desistir da Partida", command=self.forfeit_game, bg="red", fg="white", activebackground="darkred")
         self.forfeit_button.pack(pady=5)
 
-    # --- FUNÇÃO MODIFICADA PARA USAR self.host e self.port ---
-    def _connect_to_server(self):
-        try:
-            self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            # Usa as variáveis da instância em vez de constantes globais
-            self.client_socket.connect((self.host, self.port))
-            threading.Thread(target=self.receive_messages, daemon=True).start()
-        except ConnectionRefusedError:
-            messagebox.showerror("ERRO", f"Não foi possível conectar ao servidor em {self.host}:{self.port}")
-            self.master.destroy()
-
-    def set_status(self, message, color="black", permanent=False):
-        self.status_label.config(text=message, fg=color)
-        if permanent:
-            self.last_status_message = message
-        
-    def show_notification(self, message, color="orange", duration=3000):
-        if self.scheduled_job:
-            self.master.after_cancel(self.scheduled_job)
-        current_text = self.status_label.cget("text")
-        current_color = self.status_label.cget("fg")
-        self.status_label.config(text=message, fg=color)
-        self.scheduled_job = self.master.after(duration, lambda: self.status_label.config(text=current_text, fg=current_color))
-
-    def forfeit_game(self):
-        if not self.forfeit_pending:
-            self.forfeit_pending = True
-            self.forfeit_button.config(text="Confirmar Desistência?", bg="#FFA500")
-            self.master.after(4000, self.reset_forfeit_button)
-        else:
-            self.send_message("DESISTENCIA")
-            self.reset_forfeit_button()
-
-    def reset_forfeit_button(self):
-        self.forfeit_pending = False
-        self.forfeit_button.config(text="Desistir da Partida", bg="red")
-
-    def receive_messages(self):
-        while True:
-            try:
-                message = self.client_socket.recv(1024).decode('utf-8')
-                if not message: break
-                parts = message.split(':')
-                command = parts[0]
-                if command == "BEMVINDO":
-                    self.player_id = int(parts[1])
-                    self.master.title(f"Halma - Jogador {self.player_id}")
-                    self.set_status(f"Você é o Jogador {self.player_id}. Aguardando oponente.", permanent=True)
-                elif command == "INICIAR_JOGO":
-                    self.set_status("Jogo iniciado!", permanent=True)
-                elif command == "SEU_TURNO":
-                    self.is_my_turn = True
-                    self.set_status("É a sua vez!", color="green", permanent=True)
-                elif command == "UPDATE":
-                    from_pos = tuple(map(int, parts[1].split(',')))
-                    to_pos = tuple(map(int, parts[2].split(',')))
-                    self.update_board(from_pos, to_pos)
-                    self.is_my_turn = False
-                    self.set_status("Vez do oponente.", color="darkred", permanent=True)
-                elif command == "CHAT":
-                    sender_id, chat_msg = parts[1], ":".join(parts[2:])
-                    self.display_message(f"Jogador {sender_id}: {chat_msg}")
-                elif command == "VENCEDOR":
-                    winner_id = int(parts[1])
-                    self.is_my_turn = False
-                    reason = " Por desistência." if len(parts) > 2 else "."
-                    if winner_id == self.player_id:
-                        self.set_status("Você venceu!" + reason, color="blue", permanent=True)
-                    else:
-                        self.set_status("Você perdeu." + reason, color="black", permanent=True)
-                elif command == "ERRO":
-                    self.show_notification(f"Aviso: {parts[1]}")
-                elif command == "OPONENTE_DESCONECTOU":
-                    self.is_my_turn = False
-                    self.set_status("Oponente desconectou. O jogo terminou.", permanent=True)
-            except ConnectionResetError:
-                messagebox.showerror("Desconectado", "A conexão com o servidor foi perdida.")
-                break
-
-    def _setup_pieces(self):
+    def dispor_pecas(self):
         for r, c in P1_INITIAL_POSITIONS: self.board[r][c] = 1
         for r, c in P2_INITIAL_POSITIONS: self.board[r][c] = 2
         self.draw_board()
@@ -173,6 +112,7 @@ class HalmaClient:
                 if player != 0:
                     x_center = (c * CELL_SIZE) + (CELL_SIZE // 2)
                     y_center = (r * CELL_SIZE) + (CELL_SIZE // 2)
+                    # Sua lógica de jogador 1 ser sempre planeta 1
                     image_to_draw = self.planeta1_peca if player == 1 else self.planeta2_peca
                     self.canvas.create_image(x_center, y_center, image=image_to_draw)
         if self.selected_piece:
@@ -180,23 +120,118 @@ class HalmaClient:
             x1, y1 = c * CELL_SIZE, r * CELL_SIZE
             self.canvas.create_oval(x1 + 2, y1 + 2, x1 + CELL_SIZE - 2, y1 + CELL_SIZE - 2, outline="red", width=3)
 
+    def set_status(self, message, color="black"):
+        self.status_label.config(text=message, fg=color)
+        
+    # --- LÓGICA DE ATUALIZAÇÃO E RPC (O CORAÇÃO DA MUDANÇA) ---
+    
+    def loop_de_atualizacao(self):
+        """Thread que pergunta ao servidor por atualizações (Polling)."""
+        while self.jogo_ativo:
+            try:
+                # 1. Pede o estado do jogo
+                estado = self.servidor.get_estado_do_jogo()
+                
+                # 2. Verifica se algo mudou (tabuleiro, turno ou vencedor)
+                if estado["estado_id"] != self.ultimo_estado_id:
+                    self.ultimo_estado_id = estado["estado_id"]
+                    
+                    self.board = estado["board"]
+                    self.is_my_turn = (estado["turn"] == self.player_id) and (estado["winner"] is None)
+                    self.draw_board() 
+                    
+                    if estado["winner"]:
+                        self.jogo_ativo = False
+                        if estado["winner"] == self.player_id:
+                            self.set_status("Você Venceu!", "blue")
+                        else:
+                            self.set_status("Você Perdeu.", "black")
+                    elif estado["jogadores_conectados"] < 2:
+                        self.set_status("Aguardando oponente...")
+                    elif self.is_my_turn:
+                        self.set_status("É a sua vez!", "green")
+                    else:
+                        self.set_status("Vez do oponente.", "darkred")
+
+                # 3. Pede novas mensagens do chat
+                novas_mensagens = self.servidor.get_novas_mensagens_chat(self.ultimo_chat_id)
+                if novas_mensagens:
+                    for msg in novas_mensagens:
+                        self.display_message(msg)
+                    self.ultimo_chat_id += len(novas_mensagens)
+
+            except Exception as e:
+                if self.jogo_ativo:
+                    print(f"Erro no loop de atualização: {e}")
+                    self.set_status("Erro de conexão com o servidor...", "red")
+                break
+            
+            time.sleep(1) # Pergunta por atualizações a cada 1 segundo
+
     def on_canvas_click(self, event):
-        if not self.is_my_turn: return
+        """Chamado quando o jogador clica no tabuleiro."""
+        if not self.is_my_turn or not self.jogo_ativo:
+            return
+            
         c, r = event.x // CELL_SIZE, event.y // CELL_SIZE
         clicked_pos = (r, c)
+
         if self.selected_piece and clicked_pos in self.possible_moves:
             from_pos = self.selected_piece
-            self.send_message(f"MOVE:{from_pos[0]},{from_pos[1]}:{clicked_pos[0]},{clicked_pos[1]}")
+            
+            # --- CHAMADA RPC PARA O SERVIDOR ---
+            try:
+                # Chama a função remota como se fosse local
+                sucesso, mensagem = self.servidor.fazer_jogada(self.player_id, from_pos, clicked_pos)
+                if not sucesso:
+                    messagebox.showwarning("Movimento Inválido", mensagem)
+            except Exception as e:
+                messagebox.showerror("Erro de Conexão", f"Falha ao enviar jogada: {e}")
+
             self.selected_piece = None
             self.possible_moves = []
+            # O loop_de_atualizacao vai pegar a mudança e redesenhar.
+            
         elif self.board[r][c] == self.player_id:
             self.selected_piece = clicked_pos
             self.possible_moves = self.calculate_possible_moves(r, c)
+            self.draw_board()
         else:
             self.selected_piece = None
             self.possible_moves = []
-        self.draw_board()
+            self.draw_board()
 
+    def send_chat_message(self, event=None):
+        """Envia uma mensagem de chat via RPC."""
+        message = self.chat_input.get()
+        if message:
+            try:
+                self.servidor.enviar_chat(self.player_id, message)
+                self.display_message(f"Eu: {message}")
+                self.chat_input.delete(0, tk.END)
+            except Exception as e:
+                messagebox.showerror("Erro de Chat", f"Não foi possível enviar a mensagem: {e}")
+
+    def forfeit_game(self):
+        """Envia um comando de desistência via RPC."""
+        if not self.jogo_ativo: return
+        if messagebox.askyesno("Confirmar", "Você tem certeza que deseja desistir?"):
+            try:
+                self.servidor.desistir(self.player_id)
+            except Exception as e:
+                messagebox.showerror("Erro", f"Falha ao desistir: {e}")
+
+    def on_closing(self):
+        self.jogo_ativo = False # Para a thread de atualização
+        self.master.destroy()
+        
+    def display_message(self, message):
+        self.chat_display.config(state='normal')
+        self.chat_display.insert(tk.END, message + "\n")
+        self.chat_display.config(state='disabled')
+        self.chat_display.yview(tk.END)
+        
+    # (Funções calculate_possible_moves e _find_jumps_recursive são idênticas)
     def calculate_possible_moves(self, r, c):
         moves = set()
         for dr in [-1, 0, 1]:
@@ -224,57 +259,21 @@ class HalmaClient:
                         new_path.add((dest_r, dest_c))
                         self._find_jumps_recursive((dest_r, dest_c), all_moves, new_path)
 
-    def update_board(self, from_pos, to_pos):
-        player = self.board[from_pos[0]][from_pos[1]]
-        self.board[to_pos[0]][to_pos[1]] = player
-        self.board[from_pos[0]][from_pos[1]] = 0
-        self.draw_board()
-        
-    def send_message(self, message):
-        try: self.client_socket.send(message.encode('utf-8'))
-        except (BrokenPipeError, ConnectionResetError): self.handle_server_disconnect()
-            
-    def handle_server_disconnect(self):
-        if self.master.winfo_exists():
-            messagebox.showerror("Desconectado", "A conexão com o servidor foi perdida.")
-            self.master.destroy()
-            
-    def send_chat_message(self, event=None):
-        message = self.chat_input.get()
-        if message:
-            self.send_message(f"CHAT:{message}")
-            self.display_message(f"Eu: {message}")
-            self.chat_input.delete(0, tk.END)
-    
-    def display_message(self, message):
-        self.chat_display.config(state='normal')
-        self.chat_display.insert(tk.END, message + "\n")
-        self.chat_display.config(state='disabled')
-        self.chat_display.yview(tk.END)
-                
-    def on_closing(self):
-        if self.client_socket: self.client_socket.close()
-        self.master.destroy()
-
-# --- BLOCO PRINCIPAL MODIFICADO ---
+# --- BLOCO PRINCIPAL MODIFICADO (com argparse) ---
 if __name__ == "__main__":
-    # 1. Cria o parser de argumentos
-    parser = argparse.ArgumentParser(description="Inicia o cliente do jogo Halma.")
+    parser = argparse.ArgumentParser(description="Inicia o cliente RMI/RPC do jogo Halma.")
     
-    # 2. Define os argumentos que o script pode aceitar
     parser.add_argument('--host', 
                         default='127.0.0.1', 
                         help='Endereço de HOST do servidor para conectar (padrão: 127.0.0.1).')
     
     parser.add_argument('--port', 
                         type=int, 
-                        default=65432, 
-                        help='Número da PORTA do servidor para conectar (padrão: 65432).')
+                        default=8000, # Porta padrão para RPC
+                        help='Número da PORTA do servidor para conectar (padrão: 8000).')
     
-    # 3. Analisa os argumentos passados pelo usuário
     args = parser.parse_args()
 
-    # 4. Inicia a aplicação passando os argumentos para a classe
     root = tk.Tk()
     app = HalmaClient(root, args.host, args.port)
     root.mainloop()
