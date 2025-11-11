@@ -31,6 +31,10 @@ class HalmaServerLogic:
 
     def fazer_jogada(self, player_id, from_pos, to_pos):
         """Cliente chama esta função para tentar mover uma peça."""
+
+        if len(self.jogadores) < 2:
+            return False
+        
         print(f"[JOGADA] Jogador {player_id} tentando mover de {from_pos} para {to_pos}")
         sucesso, mensagem = self.jogo.move_piece(player_id, from_pos, to_pos)
         if sucesso:
@@ -65,6 +69,10 @@ class HalmaServerLogic:
 
     def desistir(self, player_id):
         """Cliente chama para desistir."""
+
+        if len(self.jogadores) < 2:
+            return False
+        
         if self.jogo.winner: # Se o jogo já acabou, não faz nada
             return True
 
@@ -85,8 +93,6 @@ class HalmaServerLogic:
             print("[INFO] Servidor pronto para aceitar novas conexões.\n")
         return True
 
-
-# --- BLOCO PRINCIPAL MODIFICADO (com argparse) ---
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Inicia o servidor RMI/RPC do jogo Halma.")
     
@@ -107,7 +113,7 @@ if __name__ == "__main__":
             server.register_instance(HalmaServerLogic())
             print(f"[ESCUTANDO] Servidor RMI/RPC pronto em {args.host}:{args.port}...")
             
-            # Uma thread simples para verificar se o jogo acabou e reiniciar
+            # Verifica se o jogo acabou para reiniciar
             def game_reset_loop():
                 while True:
                     server.instance.reset_game_se_necessario()

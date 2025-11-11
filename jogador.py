@@ -62,13 +62,12 @@ class HalmaClient:
     def carrega_imagens(self):
         """Carrega as imagens das peças"""
         try:
-            # Corrigido para .png com base nos seus arquivos mais recentes
             planeta1 = Image.open("assets/planeta1.png").resize((32,32), Image.LANCZOS)
             planeta2 = Image.open("assets/planeta2.png").resize((32,32), Image.LANCZOS)
             self.planeta1_peca = ImageTk.PhotoImage(planeta1)
             self.planeta2_peca = ImageTk.PhotoImage(planeta2)
         except FileNotFoundError:
-            messagebox.showerror("Erro de Imagem", "Poxa, aparentemente os arquivos de imagens não foram encontrados na pasta 'assets'!")
+            messagebox.showerror("Erro de Imagem", "Poxa, aparentemente os arquivos de imagens não foram encontrados na pasta 'assets'. Verifique se estão nomeados corretamente.")
             self.master.destroy()
 
     def _setup_ui(self):
